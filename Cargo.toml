@@ -1,0 +1,67 @@
+[package]
+name = "internet-control"
+version = "1.0.1"
+edition = "2021"
+description = "Internet Control v1.0 - precise Windows internet usage meter (works over PDAnet tethering + VPN). Sniff-only WinDivert packet counting with per-app traffic, WFP per-app blocking, native Slint UI."
+license = "MIT"
+
+[dependencies]
+# v1.0 UI: Slint, native, software renderer (no GPU, no WebView2/Edge).
+slint = { version = "1.19", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "software-renderer-systemfonts", "raw-window-handle-06"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# IP/TCP/UDP header parsing for per-app flow attribution (pure Rust,
+# also used by the unit tests on Linux).
+etherparse = "0.13"
+# Window handle (HWND) for opacity, drag/resize and rounded corners.
+raw-window-handle = "0.6"
+# Public IP + country lookup (v0.9): blocking HTTP client.
+# `native-tls` uses the OS TLS stack — SChannel on Windows, OpenSSL
+# on Linux — so the Windows target needs no C compiler (rustls/ring
+# would, and the sandbox has no lib.exe). Default features are off
+# so rustls/ring are not pulled in at all; `charset` is kept for
+# `Response::into_string`, and `proxy-from-env` honours HTTP_PROXY /
+# HTTPS_PROXY when set (corporate networks) and connects directly
+# otherwise. Used only by the background lookup thread — the meter
+# itself stays fully offline.
+ureq = { version = "2", default-features = false, features = ["native-tls", "charset", "proxy-from-env"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_NetworkManagement_IpHelper",
+    # Gates MIB_IF_TABLE2 / GetIfTable2 / GetAdaptersAddresses inside
+    # the IpHelper module (the if-table types live behind Ndis).
+    "Win32_NetworkManagement_Ndis",
+    "Win32_Networking_WinSock",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    # Layered-window opacity (v0.7): Get/SetWindowLongPtrW,
+    # SetLayeredWindowAttributes, WS_EX_LAYERED.
+    "Win32_UI_WindowsAndMessaging",
+    # v1.0 blocking engine: WFP dynamic-session filters.
+    "Win32_NetworkManagement_WindowsFilteringPlatform",
+    "Win32_Security",
+    "Win32_System_Rpc",
+    # v1.0 UI: drag/resize the borderless window, rounded corners.
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Dwm",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+] }
+# WinDivert 2.2 driver wrapper (stable 0.6.0; 0.7.x is beta). Needs the
+# WinDivert 2.2.2 driver files at build time via WINDIVERT_PATH, and
+# WinDivert.dll + WinDivert64.sys next to the exe at runtime.
+windivert = "0.6"
+
+[build-dependencies]
+slint-build = "1.19"
+
+[profile.release]
+opt-level = 3
+strip = true
+
+# The windows crate is huge; it needs no optimisation (thin FFI).
+[profile.release.package.windows]
+opt-level = 1

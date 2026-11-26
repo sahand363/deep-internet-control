@@ -1,0 +1,836 @@
+// Internet Control v1.0 — native Slint UI.
+// Minimal, modern, Fluent-like. Software renderer: no GPU, no WebView.
+
+import { ListView, ScrollView, Palette } from "std-widgets.slint";
+
+export struct AppRow {
+    exe: string,
+    name: string,
+    down: string,
+    up: string,
+    blocked: bool,
+    badge: string,
+    blockable: bool,
+    unknown: bool,
+    initial: string,
+}
+
+export struct AdapterRow {
+    name: string,
+    kind: string,
+    ip: string,
+    down: string,
+    up: string,
+    total: string,
+    checked: bool,
+    selected: bool,
+    unknown: bool,
+    active: bool,
+}
+
+export struct UnknownRow {
+    proto: string,
+    local: string,
+    remote: string,
+    bytes: string,
+    ago: string,
+    owner: string,
+}
+
+export global Theme {
+    in-out property <bool> dark: true;
+    out property <color> bg: dark ? #0f1115 : #f4f5f8;
+    out property <color> surface: dark ? #171a21 : #ffffff;
+    out property <color> surface2: dark ? #1e222b : #eef0f4;
+    out property <color> hover: dark ? #252a35 : #e6e9ef;
+    out property <color> border: dark ? #262b36 : #e1e4ea;
+    out property <color> text: dark ? #e9ecf2 : #161a22;
+    out property <color> muted: dark ? #8a93a6 : #6b7385;
+    out property <color> faint: dark ? #5b6376 : #9aa1b0;
+    out property <color> down: #4cb2ff;
+    out property <color> up: #ffa53d;
+    out property <color> danger: #ff5d6c;
+    out property <color> ok: #3ccf8e;
+    out property <color> accent: #6f8cff;
+}
+
+// ---------------------------------------------------------------- icons
+
+component Icon inherits Path {
+    in property <color> color: Theme.text;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    stroke: color;
+    stroke-width: 1.6px;
+    fill: transparent;
+    width: 14px;
+    height: 14px;
+}
+
+component IconButton inherits Rectangle {
+    in property <string> icon;
+    in property <color> hover-color: Theme.hover;
+    in property <color> icon-color: Theme.muted;
+    in property <bool> active: false;
+    callback clicked;
+    width: 34px;
+    height: 30px;
+    border-radius: 6px;
+    background: ta.has-hover ? hover-color : (active ? Theme.surface2 : transparent);
+    Icon {
+        commands: root.icon;
+        color: ta.has-hover && root.hover-color == Theme.danger ? white : (root.active ? Theme.accent : root.icon-color);
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+// ---------------------------------------------------------------- small widgets
+
+component Pill inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    callback clicked;
+    height: 28px;
+    min-width: t.preferred-width + 24px;
+    border-radius: 7px;
+    background: selected ? Theme.surface : (ta.has-hover ? Theme.hover : transparent);
+    drop-shadow-blur: selected ? 4px : 0;
+    drop-shadow-color: #00000030;
+    t := Text {
+        text: root.text;
+        color: root.selected ? Theme.text : Theme.muted;
+        font-size: 12.5px;
+        font-weight: root.selected ? 600 : 500;
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+component Segmented inherits Rectangle {
+    background: Theme.surface2;
+    border-radius: 9px;
+    height: 34px;
+    HorizontalLayout {
+        padding: 3px;
+        spacing: 2px;
+        @children
+    }
+}
+
+component Button inherits Rectangle {
+    in property <string> text;
+    in property <color> tint: Theme.accent;
+    in property <bool> solid: false;
+    callback clicked;
+    height: 26px;
+    min-width: t.preferred-width + 22px;
+    border-radius: 13px;
+    background: solid ? (ta.has-hover ? tint.darker(0.15) : tint) : (ta.has-hover ? tint.with-alpha(0.22) : tint.with-alpha(0.12));
+    t := Text {
+        text: root.text;
+        color: root.solid ? white : root.tint;
+        font-size: 11.5px;
+        font-weight: 600;
+    }
+    ta := TouchArea { clicked => { root.clicked(); } }
+}
+
+component Toggle inherits Rectangle {
+    in-out property <bool> checked;
+    callback toggled(bool);
+    width: 36px;
+    height: 20px;
+    border-radius: 10px;
+    background: checked ? Theme.accent : Theme.surface2;
+    border-width: checked ? 0 : 1px;
+    border-color: Theme.border;
+    animate background { duration: 150ms; }
+    Rectangle {
+        width: 14px;
+        height: 14px;
+        border-radius: 7px;
+        y: 3px;
+        x: root.checked ? root.width - 17px : 3px;
+        background: root.checked ? white : Theme.muted;
+        animate x { duration: 150ms; easing: ease-out; }
+    }
+    TouchArea {
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled(root.checked);
+        }
+    }
+}
+
+component CheckBox inherits Rectangle {
+    in property <bool> checked;
+    callback toggled(bool);
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    background: checked ? Theme.accent : transparent;
+    border-width: checked ? 0 : 1.5px;
+    border-color: Theme.faint;
+    if root.checked: Icon {
+        commands: "M5 12.5 L10 17 L19 7";
+        color: white;
+        stroke-width: 2.2px;
+        width: 12px;
+        height: 12px;
+    }
+    TouchArea { clicked => { root.toggled(!root.checked); } }
+}
+
+component Slider inherits Rectangle {
+    in property <float> minimum: 0.2;
+    in property <float> maximum: 1.0;
+    in-out property <float> value: 1.0;
+    callback changed(float);
+    height: 18px;
+    min-width: 80px;
+    property <length> knob: 14px;
+    property <float> frac: (value - minimum) / (maximum - minimum);
+    Rectangle {
+        y: (parent.height - 4px) / 2;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.surface2;
+    }
+    Rectangle {
+        x: 0;
+        y: (parent.height - 4px) / 2;
+        height: 4px;
+        width: (root.width - root.knob) * root.frac + root.knob / 2;
+        border-radius: 2px;
+        background: Theme.accent;
+    }
+    Rectangle {
+        x: (root.width - root.knob) * root.frac;
+        y: (parent.height - root.knob) / 2;
+        width: root.knob;
+        height: root.knob;
+        border-radius: root.knob / 2;
+        background: white;
+        drop-shadow-blur: 3px;
+        drop-shadow-color: #00000050;
+    }
+    ta := TouchArea {
+        function set-from(px: length) {
+            root.value = max(root.minimum, min(root.maximum, root.minimum + (px - root.knob / 2) / (root.width - root.knob) * (root.maximum - root.minimum)));
+            root.changed(root.value);
+        }
+        pointer-event(e) => {
+            if (e.kind == PointerEventKind.down) { self.set-from(self.mouse-x); }
+        }
+        moved => { if (self.pressed) { self.set-from(self.mouse-x); } }
+    }
+}
+
+component Card inherits Rectangle {
+    background: Theme.surface;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: Theme.border;
+}
+
+// ---------------------------------------------------------------- graph
+
+component Graph inherits Rectangle {
+    in property <string> down-line;
+    in property <string> up-line;
+    in property <string> down-area;
+    in property <string> up-area;
+    in property <bool> grid: true;
+    clip: true;
+    if root.grid: VerticalLayout {
+        alignment: space-between;
+        for i in 4: Rectangle { height: 1px; background: Theme.border.with-alpha(0.6); }
+    }
+    Path {
+        width: 100%; height: 100%;
+        viewbox-width: 1000; viewbox-height: 100;
+        commands: root.down-area;
+        fill: @linear-gradient(180deg, Theme.down.with-alpha(0.28) 0%, Theme.down.with-alpha(0.0) 100%);
+        stroke-width: 0;
+    }
+    Path {
+        width: 100%; height: 100%;
+        viewbox-width: 1000; viewbox-height: 100;
+        commands: root.up-area;
+        fill: @linear-gradient(180deg, Theme.up.with-alpha(0.22) 0%, Theme.up.with-alpha(0.0) 100%);
+        stroke-width: 0;
+    }
+    Path {
+        width: 100%; height: 100%;
+        viewbox-width: 1000; viewbox-height: 100;
+        commands: root.down-line;
+        stroke: Theme.down;
+        stroke-width: 1.8px;
+        fill: transparent;
+    }
+    Path {
+        width: 100%; height: 100%;
+        viewbox-width: 1000; viewbox-height: 100;
+        commands: root.up-line;
+        stroke: Theme.up;
+        stroke-width: 1.8px;
+        fill: transparent;
+    }
+}
+
+// ---------------------------------------------------------------- rate card
+
+component RateCard inherits Card {
+    in property <string> label;
+    in property <string> rate;
+    in property <string> sub;
+    in property <color> tint;
+    in property <string> arrow;
+    VerticalLayout {
+        padding: 18px;
+        spacing: 6px;
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+            Rectangle {
+                width: 22px; height: 22px; border-radius: 11px;
+                background: root.tint.with-alpha(0.15);
+                Icon { commands: root.arrow; color: root.tint; stroke-width: 2.2px; width: 12px; height: 12px; }
+            }
+            Text { text: root.label; color: Theme.muted; font-size: 12px; font-weight: 600; letter-spacing: 1px; vertical-alignment: center; }
+        }
+        Text { text: root.rate; color: Theme.text; font-size: 34px; font-weight: 300; }
+        Text { text: root.sub; color: Theme.muted; font-size: 12px; }
+    }
+}
+
+component Stat inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+    in property <color> dot: transparent;
+    VerticalLayout {
+        spacing: 3px;
+        Text { text: root.label; color: Theme.faint; font-size: 11px; font-weight: 600; letter-spacing: 0.6px; }
+        Text { text: root.value; color: Theme.text; font-size: 13.5px; }
+    }
+}
+
+// ---------------------------------------------------------------- window
+
+export component AppWindow inherits Window {
+    title: "Internet Control";
+    no-frame: true;
+    background: Theme.bg;
+    default-font-family: "Segoe UI";
+    default-font-size: 13px;
+    min-width: root.minimal ? 260px : 560px;
+    min-height: root.minimal ? 120px : 420px;
+    always-on-top: root.pinned;
+
+    // ---- state from Rust
+    in-out property <bool> minimal: false;
+    in-out property <bool> pinned: false;
+    in property <bool> win-max: false;
+    in property <string> version;
+    in property <string> down-rate: "0 B/s";
+    in property <string> up-rate: "0 B/s";
+    in property <string> session-down;
+    in property <string> session-up;
+    in property <string> today-down;
+    in property <string> today-up;
+    in property <string> peak-down;
+    in property <string> peak-up;
+    in property <string> ip-line;
+    in property <string> adapter-line;
+    in property <string> status-line;
+    in property <bool> capture-ok;
+    in property <string> top-note;
+    in property <string> graph-scale;
+    in property <string> down-line;
+    in property <string> up-line;
+    in property <string> down-area;
+    in property <string> up-area;
+    in property <[AppRow]> apps;
+    in property <[AdapterRow]> adapters;
+    in property <[UnknownRow]> unknown-rows;
+    in property <bool> view-total;
+    in property <int> sort-mode; // 0 rate, 1 total, 2 name
+    in property <int> adapter-mode; // 0 auto, 1 all, 2 named
+    in property <string> diagnostics;
+    in property <string> block-note;
+    in property <string> error-text;
+    in-out property <bool> run-on-startup;
+    in-out property <float> win-opacity: 1.0;
+    in-out property <int> tab: 0;
+    in-out property <string> selected-exe;
+    in-out property <string> search;
+
+    // ---- actions to Rust
+    callback drag-window();
+    callback resize-window(int);
+    callback minimize-window();
+    callback toggle-maximize();
+    callback close-window();
+    callback minimal-changed(bool);
+    callback theme-changed(bool);
+    callback pin-changed(bool);
+    callback toggle-block(string, bool);
+    callback copy-text(string);
+    callback show-in-folder(string);
+    callback set-view-total(bool);
+    callback set-sort(int);
+    callback adapter-auto();
+    callback adapter-all();
+    callback adapter-toggle(string, bool);
+    callback identify-unknown();
+    callback startup-changed(bool);
+    callback opacity-changed(float);
+
+    public function apply-scheme() {
+        Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light;
+    }
+
+    // icon paths
+    property <string> i-down: "M12 4 V20 M5 13 L12 20 L19 13";
+    property <string> i-up: "M12 20 V4 M5 11 L12 4 L19 11";
+    property <string> i-min: "M6 12 H18";
+    property <string> i-max: "M6.5 6.5 H17.5 V17.5 H6.5 Z";
+    property <string> i-restore: "M8.5 8.5 H17.5 V17.5 H8.5 Z M6.5 15 V6.5 H15";
+    property <string> i-close: "M6.5 6.5 L17.5 17.5 M17.5 6.5 L6.5 17.5";
+    property <string> i-moon: "M19 14.5 A7.5 7.5 0 1 1 9.5 5 A6 6 0 0 0 19 14.5 Z";
+    property <string> i-sun: "M12 8 A4 4 0 1 1 11.99 8 Z M12 2.5 V4.5 M12 19.5 V21.5 M2.5 12 H4.5 M19.5 12 H21.5 M5.3 5.3 L6.7 6.7 M17.3 17.3 L18.7 18.7 M5.3 18.7 L6.7 17.3 M17.3 6.7 L18.7 5.3";
+    property <string> i-pin: "M9 4 H15 L14 10 L17.5 13.5 H6.5 L10 10 Z M12 13.5 V20";
+    property <string> i-shrink: "M4 14 H10 V20 M20 10 H14 V4 M10 14 L4 20 M14 10 L20 4";
+    property <string> i-expand: "M14 4 H20 V10 M10 20 H4 V14 M20 4 L13 11 M4 20 L11 13";
+    property <string> i-folder: "M3.5 7 V18 H20.5 V8.5 H11.5 L9.5 6 H3.5 Z";
+    property <string> i-copy: "M8.5 8.5 H18.5 V19.5 H8.5 Z M5.5 15.5 V4.5 H15.5";
+
+    // ================================================== MINIMAL VIEW
+    if root.minimal: Rectangle {
+        background: Theme.bg;
+        TouchArea {
+            property <length> px;
+            property <length> py;
+            pointer-event(e) => {
+                if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) { self.px = self.mouse-x; self.py = self.mouse-y; }
+            }
+            moved => {
+                if (self.pressed && (abs((self.mouse-x - self.px) / 1px) > 4 || abs((self.mouse-y - self.py) / 1px) > 4)) { root.drag-window(); }
+            }
+            double-clicked => { root.minimal = false; root.minimal-changed(false); }
+        }
+        VerticalLayout {
+            padding: 12px;
+            padding-top: 8px;
+            spacing: 6px;
+            HorizontalLayout {
+                spacing: 4px;
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    Icon { commands: root.i-down; color: Theme.down; stroke-width: 2.2px; width: 12px; height: 12px; y: 6px; }
+                    Text { text: root.down-rate; color: Theme.text; font-size: 19px; font-weight: 400; }
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    Icon { commands: root.i-up; color: Theme.up; stroke-width: 2.2px; width: 12px; height: 12px; y: 6px; }
+                    Text { text: root.up-rate; color: Theme.text; font-size: 19px; font-weight: 400; }
+                }
+                IconButton { icon: root.pinned ? root.i-pin : root.i-pin; active: root.pinned; width: 26px; height: 24px; clicked => { root.pinned = !root.pinned; root.pin-changed(root.pinned); } }
+                IconButton { icon: root.i-expand; width: 26px; height: 24px; clicked => { root.minimal = false; root.minimal-changed(false); } }
+                IconButton { icon: root.i-close; hover-color: Theme.danger; width: 26px; height: 24px; clicked => { root.close-window(); } }
+            }
+            Graph {
+                vertical-stretch: 1;
+                min-height: 34px;
+                grid: false;
+                down-line: root.down-line;
+                up-line: root.up-line;
+                down-area: root.down-area;
+                up-area: root.up-area;
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                Text { text: root.ip-line; color: Theme.muted; font-size: 11px; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                Slider { width: 70px; value <=> root.win-opacity; changed(v) => { root.opacity-changed(v); } }
+            }
+        }
+    }
+
+    // ================================================== FULL VIEW
+    if !root.minimal: VerticalLayout {
+        // ---- title bar
+        Rectangle {
+            height: 42px;
+            TouchArea {
+                property <length> px;
+                property <length> py;
+                pointer-event(e) => {
+                    if (e.kind == PointerEventKind.down && e.button == PointerEventButton.left) { self.px = self.mouse-x; self.py = self.mouse-y; }
+                }
+                moved => {
+                    if (self.pressed && (abs((self.mouse-x - self.px) / 1px) > 4 || abs((self.mouse-y - self.py) / 1px) > 4)) { root.drag-window(); }
+                }
+                double-clicked => { root.toggle-maximize(); }
+            }
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 6px;
+                spacing: 2px;
+                HorizontalLayout {
+                    spacing: 9px;
+                    alignment: start;
+                    horizontal-stretch: 1;
+                    Rectangle {
+                        width: 10px; height: 10px; border-radius: 5px; y: (42px - 10px) / 2;
+                        background: root.capture-ok ? Theme.ok : Theme.danger;
+                    }
+                    Text { text: "Internet Control"; color: Theme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+                    Text { text: "v" + root.version; color: Theme.faint; font-size: 11.5px; vertical-alignment: center; }
+                }
+                VerticalLayout { alignment: center; IconButton { icon: Theme.dark ? root.i-sun : root.i-moon; clicked => { Theme.dark = !Theme.dark; root.apply-scheme(); root.theme-changed(Theme.dark); } } }
+                VerticalLayout { alignment: center; IconButton { icon: root.i-pin; active: root.pinned; clicked => { root.pinned = !root.pinned; root.pin-changed(root.pinned); } } }
+                VerticalLayout { alignment: center; IconButton { icon: root.i-shrink; clicked => { root.minimal = true; root.minimal-changed(true); } } }
+                Rectangle { width: 8px; }
+                VerticalLayout { alignment: center; IconButton { icon: root.i-min; width: 40px; clicked => { root.minimize-window(); } } }
+                VerticalLayout { alignment: center; IconButton { icon: root.win-max ? root.i-restore : root.i-max; width: 40px; clicked => { root.toggle-maximize(); } } }
+                VerticalLayout { alignment: center; IconButton { icon: root.i-close; width: 40px; hover-color: Theme.danger; clicked => { root.close-window(); } } }
+            }
+        }
+
+        // ---- tabs
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 16px;
+            padding-bottom: 10px;
+            Segmented {
+                Pill { text: "Overview"; selected: root.tab == 0; clicked => { root.tab = 0; } }
+                Pill { text: "Apps"; selected: root.tab == 1; clicked => { root.tab = 1; } }
+                Pill { text: "Adapters"; selected: root.tab == 2; clicked => { root.tab = 2; } }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            Text { text: root.ip-line; color: Theme.muted; font-size: 12px; vertical-alignment: center; overflow: elide; }
+        }
+
+        // ---- error banner
+        if root.error-text != "": Rectangle {
+            height: 32px;
+            HorizontalLayout {
+                padding-left: 16px; padding-right: 16px;
+                Rectangle {
+                    border-radius: 8px;
+                    background: Theme.danger.with-alpha(0.12);
+                    Text { x: 12px; text: root.error-text; color: Theme.danger; font-size: 12px; overflow: elide; width: parent.width - 24px; }
+                }
+            }
+        }
+
+        // ---- pages
+        Rectangle {
+            vertical-stretch: 1;
+
+            // ===== Overview
+            if root.tab == 0: ScrollView {
+                VerticalLayout {
+                    padding: 16px;
+                    padding-top: 4px;
+                    spacing: 14px;
+                    HorizontalLayout {
+                        spacing: 14px;
+                        RateCard { label: "DOWNLOAD"; rate: root.down-rate; sub: "Session  " + root.session-down; tint: Theme.down; arrow: root.i-down; horizontal-stretch: 1; }
+                        RateCard { label: "UPLOAD"; rate: root.up-rate; sub: "Session  " + root.session-up; tint: Theme.up; arrow: root.i-up; horizontal-stretch: 1; }
+                    }
+                    if root.top-note != "": Text { text: root.top-note; color: Theme.up; font-size: 12px; wrap: word-wrap; }
+                    Card {
+                        min-height: 230px;
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 10px;
+                            HorizontalLayout {
+                                spacing: 14px;
+                                Text { text: "Last 60 seconds"; color: Theme.text; font-size: 13px; font-weight: 600; horizontal-stretch: 1; }
+                                HorizontalLayout { spacing: 5px; Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.down; y: 5px; } Text { text: "Download"; color: Theme.muted; font-size: 11.5px; } }
+                                HorizontalLayout { spacing: 5px; Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.up; y: 5px; } Text { text: "Upload"; color: Theme.muted; font-size: 11.5px; } }
+                                Text { text: root.graph-scale; color: Theme.faint; font-size: 11.5px; }
+                            }
+                            Graph {
+                                vertical-stretch: 1;
+                                down-line: root.down-line;
+                                up-line: root.up-line;
+                                down-area: root.down-area;
+                                up-area: root.up-area;
+                            }
+                        }
+                    }
+                    Card {
+                        height: 70px;
+                        HorizontalLayout {
+                            padding-left: 18px; padding-right: 18px;
+                            spacing: 18px;
+                            alignment: space-between;
+                            Stat { label: "TODAY ↓"; value: root.today-down; }
+                            Stat { label: "TODAY ↑"; value: root.today-up; }
+                            Stat { label: "PEAK ↓"; value: root.peak-down; }
+                            Stat { label: "PEAK ↑"; value: root.peak-up; }
+                            Stat { label: "ADAPTER"; value: root.adapter-line; }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        Text { text: root.status-line; color: Theme.faint; font-size: 11.5px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                        Text { text: "Opacity"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                        Slider { width: 110px; value <=> root.win-opacity; changed(v) => { root.opacity-changed(v); } }
+                        Rectangle { width: 8px; }
+                        Text { text: "Start with Windows"; color: Theme.muted; font-size: 12px; vertical-alignment: center; }
+                        VerticalLayout { alignment: center; Toggle { checked <=> root.run-on-startup; toggled(v) => { root.startup-changed(v); } } }
+                    }
+                }
+            }
+
+            // ===== Apps
+            if root.tab == 1: VerticalLayout {
+                padding: 16px;
+                padding-top: 4px;
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    Segmented {
+                        Pill { text: "Live rate"; selected: !root.view-total; clicked => { root.set-view-total(false); } }
+                        Pill { text: "Total"; selected: root.view-total; clicked => { root.set-view-total(true); } }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 34px;
+                        border-radius: 9px;
+                        background: Theme.surface2;
+                        border-width: si.has-focus ? 1px : 0;
+                        border-color: Theme.accent;
+                        si := TextInput {
+                            x: 12px;
+                            width: parent.width - 24px;
+                            height: parent.height;
+                            vertical-alignment: center;
+                            text <=> root.search;
+                            color: Theme.text;
+                            font-size: 12.5px;
+                            single-line: true;
+                        }
+                        if root.search == "": Text { x: 12px; text: "Search apps…"; color: Theme.faint; font-size: 12.5px; vertical-alignment: center; height: parent.height; }
+                    }
+                }
+                Card {
+                    vertical-stretch: 1;
+                    VerticalLayout {
+                        // header
+                        Rectangle {
+                            height: 36px;
+                            HorizontalLayout {
+                                padding-left: 16px; padding-right: 16px;
+                                spacing: 10px;
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    Text { x: 0; text: "Application" + (root.sort-mode == 2 ? "  ▾" : ""); color: Theme.muted; font-size: 11.5px; font-weight: 600; }
+                                    TouchArea { clicked => { root.set-sort(2); } }
+                                }
+                                Rectangle {
+                                    width: 96px;
+                                    Text { x: parent.width - self.width; text: "Download" + (root.sort-mode != 2 ? "  ▾" : ""); color: Theme.muted; font-size: 11.5px; font-weight: 600; }
+                                    TouchArea { clicked => { root.set-sort(root.view-total ? 1 : 0); } }
+                                }
+                                Rectangle {
+                                    width: 96px;
+                                    Text { x: parent.width - self.width; text: "Upload"; color: Theme.muted; font-size: 11.5px; font-weight: 600; }
+                                }
+                                Rectangle { width: 84px; }
+                            }
+                            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border; }
+                        }
+                        ListView {
+                            vertical-stretch: 1;
+                            for app in root.apps: Rectangle {
+                                height: 50px;
+                                background: root.selected-exe == app.exe ? Theme.accent.with-alpha(0.10) : (rta.has-hover ? Theme.hover.with-alpha(0.6) : transparent);
+                                rta := TouchArea {
+                                    clicked => { root.selected-exe = root.selected-exe == app.exe ? "" : app.exe; }
+                                }
+                                HorizontalLayout {
+                                    padding-left: 16px; padding-right: 16px;
+                                    spacing: 10px;
+                                    Rectangle {
+                                        width: 30px;
+                                        VerticalLayout {
+                                            alignment: center;
+                                            Rectangle {
+                                                width: 30px; height: 30px; border-radius: 8px;
+                                                background: app.blocked ? Theme.danger.with-alpha(0.15) : (app.unknown ? Theme.surface2 : Theme.accent.with-alpha(0.14));
+                                                Text {
+                                                    text: app.initial;
+                                                    color: app.blocked ? Theme.danger : Theme.accent;
+                                                    font-size: 13px; font-weight: 700;
+                                                    horizontal-alignment: center;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    VerticalLayout {
+                                        horizontal-stretch: 1;
+                                        alignment: center;
+                                        spacing: 1px;
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            alignment: start;
+                                            Text { text: app.name; color: Theme.text; font-size: 13px; font-weight: 500; overflow: elide; }
+                                            if app.badge != "": Rectangle {
+                                                height: 17px;
+                                                width: bt.preferred-width + 12px;
+                                                border-radius: 4px;
+                                                background: Theme.danger.with-alpha(0.15);
+                                                bt := Text { text: app.badge; color: Theme.danger; font-size: 9.5px; font-weight: 700; }
+                                            }
+                                        }
+                                        Text { text: app.exe; color: Theme.faint; font-size: 11px; overflow: elide; }
+                                    }
+                                    Text { width: 96px; text: app.down; color: app.blocked ? Theme.faint : Theme.down; font-size: 12.5px; font-family: "Consolas"; horizontal-alignment: right; vertical-alignment: center; }
+                                    Text { width: 96px; text: app.up; color: app.blocked ? Theme.faint : Theme.up; font-size: 12.5px; font-family: "Consolas"; horizontal-alignment: right; vertical-alignment: center; }
+                                    Rectangle {
+                                        width: 84px;
+                                        if app.blockable: Button {
+                                            x: parent.width - self.width;
+                                            y: (parent.height - self.height) / 2;
+                                            text: app.blocked ? "Unblock" : "Block";
+                                            tint: app.blocked ? Theme.ok : Theme.danger;
+                                            clicked => { root.toggle-block(app.exe, !app.blocked); }
+                                        }
+                                    }
+                                }
+                                Rectangle { y: parent.height - 1px; height: 1px; x: 16px; width: parent.width - 32px; background: Theme.border.with-alpha(0.5); }
+                            }
+                        }
+                    }
+                }
+                // details for the selected row
+                if root.selected-exe != "" && root.selected-exe != "Unknown (unattributed)": Card {
+                    height: 48px;
+                    HorizontalLayout {
+                        padding-left: 14px; padding-right: 10px;
+                        spacing: 8px;
+                        Text { text: root.selected-exe; color: Theme.text; font-size: 12px; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                        VerticalLayout { alignment: center; Button { text: "Copy path"; clicked => { root.copy-text(root.selected-exe); } } }
+                        VerticalLayout { alignment: center; Button { text: "Show in folder"; clicked => { root.show-in-folder(root.selected-exe); } } }
+                    }
+                }
+                if root.selected-exe == "Unknown (unattributed)": Card {
+                    height: 200px;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 6px;
+                        HorizontalLayout {
+                            Text { text: "Unattributed traffic — newest flows the meter could not match to a program"; color: Theme.text; font-size: 12px; font-weight: 600; horizontal-stretch: 1; vertical-alignment: center; overflow: elide; }
+                            Button { text: "Identify"; solid: true; clicked => { root.identify-unknown(); } }
+                        }
+                        ListView {
+                            for u in root.unknown-rows: HorizontalLayout {
+                                height: 24px;
+                                spacing: 10px;
+                                Text { width: 40px; text: u.proto; color: Theme.muted; font-size: 11px; vertical-alignment: center; }
+                                Text { horizontal-stretch: 1; text: u.local + "  →  " + u.remote; color: Theme.text; font-size: 11px; font-family: "Consolas"; overflow: elide; vertical-alignment: center; }
+                                Text { width: 70px; text: u.bytes; color: Theme.muted; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { width: 60px; text: u.ago; color: Theme.faint; font-size: 11px; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { width: 220px; text: u.owner; color: Theme.accent; font-size: 11px; overflow: elide; vertical-alignment: center; }
+                            }
+                        }
+                    }
+                }
+                if root.block-note != "": Text { text: root.block-note; color: Theme.muted; font-size: 11.5px; wrap: word-wrap; }
+            }
+
+            // ===== Adapters
+            if root.tab == 2: VerticalLayout {
+                padding: 16px;
+                padding-top: 4px;
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Segmented {
+                        Pill { text: "Auto"; selected: root.adapter-mode == 0; clicked => { root.adapter-auto(); } }
+                        Pill { text: "All"; selected: root.adapter-mode == 1; clicked => { root.adapter-all(); } }
+                        Pill { text: "Selected"; selected: root.adapter-mode == 2; }
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        text: root.adapter-mode == 0 ? "Follows the adapter that carries your traffic (e.g. PdaNet)." : (root.adapter-mode == 1 ? "Sum of all adapters. VPN over PdaNet is counted twice." : "Sum of the ticked adapters.");
+                        color: Theme.muted; font-size: 12px; vertical-alignment: center; overflow: elide;
+                    }
+                }
+                Card {
+                    vertical-stretch: 1;
+                    ListView {
+                        for a in root.adapters: Rectangle {
+                            height: 54px;
+                            background: a.selected ? Theme.accent.with-alpha(0.08) : transparent;
+                            HorizontalLayout {
+                                padding-left: 16px; padding-right: 16px;
+                                spacing: 12px;
+                                VerticalLayout { alignment: center; CheckBox { checked: a.checked; toggled(v) => { root.adapter-toggle(a.name, v); } } }
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    alignment: center;
+                                    spacing: 1px;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        alignment: start;
+                                        Rectangle { width: 7px; height: 7px; border-radius: 3.5px; y: 6px; background: a.active ? Theme.ok : Theme.faint; }
+                                        Text { text: a.name; color: Theme.text; font-size: 13px; font-weight: 500; overflow: elide; }
+                                        if a.selected: Text { text: "IN USE"; color: Theme.accent; font-size: 9.5px; font-weight: 700; vertical-alignment: center; }
+                                    }
+                                    Text { text: a.kind + (a.ip != "" ? "  ·  " + a.ip : ""); color: Theme.faint; font-size: 11px; overflow: elide; }
+                                }
+                                Text { width: 90px; text: "↓ " + a.down; color: Theme.down; font-size: 12px; font-family: "Consolas"; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { width: 90px; text: "↑ " + a.up; color: Theme.up; font-size: 12px; font-family: "Consolas"; horizontal-alignment: right; vertical-alignment: center; }
+                                Text { width: 90px; text: a.total; color: Theme.muted; font-size: 12px; horizontal-alignment: right; vertical-alignment: center; }
+                            }
+                            Rectangle { y: parent.height - 1px; height: 1px; x: 16px; width: parent.width - 32px; background: Theme.border.with-alpha(0.5); }
+                        }
+                    }
+                }
+                Card {
+                    height: 112px;
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 4px;
+                        HorizontalLayout {
+                            Text { text: "Diagnostics"; color: Theme.text; font-size: 12px; font-weight: 600; horizontal-stretch: 1; }
+                            Button { text: "Copy"; clicked => { root.copy-text(root.diagnostics); } }
+                        }
+                        Text { text: root.diagnostics; color: Theme.muted; font-size: 11px; font-family: "Consolas"; wrap: word-wrap; vertical-stretch: 1; overflow: elide; }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---- invisible resize strips (borderless window), not when maximized
+    if !root.win-max: Rectangle {
+        property <length> e: 5px;
+        // edges: 1 left, 2 right, 3 top, 4 bottom, 5 tl, 6 tr, 7 bl, 8 br
+        Rectangle { x: 0; y: parent.e; width: parent.e; height: parent.height - 2 * parent.e;
+            TouchArea { mouse-cursor: ew-resize; pointer-event(ev) => { if (ev.kind == PointerEventKind.down) { root.resize-window(1); } } } }
+        Rectangle { x: parent.width - parent.e; y: parent.e; width: parent.e; height: parent.height - 2 * parent.e;
+            TouchArea { mouse-cursor: ew-resize; pointer-event(ev) => { if (ev.kind == PointerEventKind.down) { root.resize-window(2); } } } }
+        Rectangle { x: parent.e; y: 0; width: parent.width - 2 * parent.e; height: parent.e;
+            TouchArea { mouse-cursor: ns-resize; pointer-event(ev) => { if (ev.kind == PointerEventKind.down) { root.resize-window(3); } } } }
+        Rectangle { x: parent.e; y: parent.height - parent.e; width: parent.width - 2 * parent.e; height: parent.e;
+            TouchArea { mouse-cursor: ns-resize; pointer-event(ev) => { if (ev.kind == PointerEventKind.down) { root.resize-window(4); } } } }
+        Rectangle { x: 0; y: 0; width: parent.e * 2; height: parent.e * 2;
+            TouchArea { mouse-cursor: nwse-resize; pointer-event(ev) => { if (ev.kind == PointerEventKind.down) { root.resize-window(5); } } } }
+        Rectangle { x: parent.width - parent.e * 2; y: 0; width: parent.e * 2; height: parent.e * 2;
+            TouchArea { mouse-cursor: nesw-resize; pointer-event(ev) => { if (ev.kind == PointerEventKind.down) { root.resize-window(6); } } } }
+        Rectangle { x: 0; y: parent.height - parent.e * 2; width: parent.e * 2; height: parent.e * 2;
+            TouchArea { mouse-cursor: nesw-resize; pointer-event(ev) => { if (ev.kind == PointerEventKind.down) { root.resize-window(7); } } } }
+        Rectangle { x: parent.width - parent.e * 2; y: parent.height - parent.e * 2; width: parent.e * 2; height: parent.e * 2;
+            TouchArea { mouse-cursor: nwse-resize; pointer-event(ev) => { if (ev.kind == PointerEventKind.down) { root.resize-window(8); } } } }
+    }
+    // thin window outline
+    Rectangle { border-width: 1px; border-color: Theme.border; background: transparent; }
+}
