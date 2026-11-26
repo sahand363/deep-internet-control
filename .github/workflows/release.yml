@@ -1,0 +1,53 @@
+# Release — Internet Control meter
+# Push a tag like v1.0.1 to build and publish the Windows zip.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-windows:
+    name: Build Windows zip
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      # v0.2 needs the WinDivert 2.2.2 driver files: the windivert crate
+      # links against them at build time (WINDIVERT_PATH), and the zip
+      # must ship WinDivert.dll + WinDivert64.sys next to the exe.
+      # Verified 2026-11-25: this URL returns the official release zip.
+      - name: Download WinDivert driver
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/basil00/WinDivert/releases/download/v2.2.2/WinDivert-2.2.2-A.zip" -OutFile windivert.zip
+          Expand-Archive -Path windivert.zip -DestinationPath windivert
+          Add-Content -Path $env:GITHUB_ENV -Value "WINDIVERT_PATH=$PWD\windivert\WinDivert-2.2.2-A\x64"
+      - run: cargo build --release --locked --target x86_64-pc-windows-msvc
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $version = (Get-Content Cargo.toml | Select-String '^version = "([^"]+)"').Matches.Groups[1].Value
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item target\x86_64-pc-windows-msvc\release\internet-control.exe dist\
+          Copy-Item $env:WINDIVERT_PATH\WinDivert.dll dist\
+          Copy-Item $env:WINDIVERT_PATH\WinDivert64.sys dist\
+          Copy-Item README.md dist\
+          Copy-Item $env:WINDIVERT_PATH\..\LICENSE dist\WinDivert-LICENSE.txt
+          Compress-Archive -Path dist\* -DestinationPath "internet-control-v$version-windows-x64.zip"
+          Get-FileHash "internet-control-v$version-windows-x64.zip" -Algorithm SHA256 | Format-List
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: internet-control-v*-windows-x64.zip
+          body: |
+            Internet Control ${{ github.ref_name }} — Windows 10/11 x64.
+            Native Slint UI (no WebView2, no GPU needed), sniff-only metering (never slows your internet), per-app Block via Windows Filtering Platform.
+            Unzip and run `internet-control.exe` (it asks for administrator rights — WinDivert and WFP need them).
+            Keep WinDivert.dll and WinDivert64.sys next to the exe. See README.md for details.
