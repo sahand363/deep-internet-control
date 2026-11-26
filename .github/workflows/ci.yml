@@ -1,0 +1,38 @@
+# CI — Internet Control meter
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test-linux:
+    name: cargo test (Linux, platform-independent unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # Slint's winit backend links against fontconfig + xkbcommon on Linux.
+      - run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev
+      - run: cargo test --locked
+
+  check-windows:
+    name: cargo check (Windows target)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      # v0.2: the windivert crate needs the WinDivert 2.2.2 files at
+      # build time (WINDIVERT_PATH). Verified 2026-11-25.
+      - name: Download WinDivert driver
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/basil00/WinDivert/releases/download/v2.2.2/WinDivert-2.2.2-A.zip" -OutFile windivert.zip
+          Expand-Archive -Path windivert.zip -DestinationPath windivert
+          Add-Content -Path $env:GITHUB_ENV -Value "WINDIVERT_PATH=$PWD\windivert\WinDivert-2.2.2-A\x64"
+      - run: cargo check --locked --target x86_64-pc-windows-msvc
+      - run: cargo clippy --locked --target x86_64-pc-windows-msvc
