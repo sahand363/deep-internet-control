@@ -1,0 +1,3 @@
+// App icon resource (v1.0.2). Rebuild app.res with:
+//   llvm-rc /FO assets/app.res assets/app.rc   (or rc.exe on Windows)
+1 ICON "app.ico"
