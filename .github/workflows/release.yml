@@ -1,4 +1,4 @@
-# Release — Internet Control meter
+# Release — Deep Internet Control
 # Push a tag like v1.0.1 to build and publish the Windows zip.
 name: Release
 
@@ -35,19 +35,19 @@ jobs:
         run: |
           $version = (Get-Content Cargo.toml | Select-String '^version = "([^"]+)"').Matches.Groups[1].Value
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item target\x86_64-pc-windows-msvc\release\internet-control.exe dist\
+          Copy-Item target\x86_64-pc-windows-msvc\release\deep-internet-control.exe dist\
           Copy-Item $env:WINDIVERT_PATH\WinDivert.dll dist\
           Copy-Item $env:WINDIVERT_PATH\WinDivert64.sys dist\
           Copy-Item README.md dist\
           Copy-Item $env:WINDIVERT_PATH\..\LICENSE dist\WinDivert-LICENSE.txt
-          Compress-Archive -Path dist\* -DestinationPath "internet-control-v$version-windows-x64.zip"
-          Get-FileHash "internet-control-v$version-windows-x64.zip" -Algorithm SHA256 | Format-List
+          Compress-Archive -Path dist\* -DestinationPath "deep-internet-control-v$version-windows-x64.zip"
+          Get-FileHash "deep-internet-control-v$version-windows-x64.zip" -Algorithm SHA256 | Format-List
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: internet-control-v*-windows-x64.zip
+          files: deep-internet-control-v*-windows-x64.zip
           body: |
-            Internet Control ${{ github.ref_name }} — Windows 10/11 x64.
+            Deep Internet Control ${{ github.ref_name }} — Windows 10/11 x64.
             Native Slint UI (no WebView2, no GPU needed), sniff-only metering (never slows your internet), per-app Block via Windows Filtering Platform.
-            Unzip and run `internet-control.exe` (it asks for administrator rights — WinDivert and WFP need them).
+            Unzip and run `deep-internet-control.exe` (it asks for administrator rights — WinDivert and WFP need them).
             Keep WinDivert.dll and WinDivert64.sys next to the exe. See README.md for details.
